@@ -17,8 +17,8 @@ int main(void)
   double lambda = cc/freq;
   double T      = 1.0 / freq;
 
-  size_t Nx = 200;
-  size_t Nt = 140;
+  size_t Nx = 100;
+  size_t Nt = 250;
   
   double Sc = 1.0;
   double dx = lambda/15.0;
@@ -46,10 +46,18 @@ int main(void)
 
     out << "\n\n";
 
+    // 1st order Mur
+    double ExBL = Ex[1];
+    double ExBR = Ex[Nx-2];
+
     // Electric field loop
     for (size_t i = 1; i < Nx - 1; i++){
       Ex[i] = Ex[i] - Ce[i]*(Hy[i] - Hy[i-1]);
     }
+   
+    Ex[0] = ExBL + (cc*dt-dx)*(Ex[1] - Ex[0])/(cc*dt+dx);
+    Ex[Nx-1] = ExBR + (cc*dt-dx)*(Ex[Nx-2]-Ex[Nx-1])/(cc*dt+dx);
+
         
     // Update source
     Ex[Nx/2] = sin(2.0*M_PI*freq*n*dt);
