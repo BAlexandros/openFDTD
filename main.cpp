@@ -8,7 +8,7 @@ int main(void)
   gs.tfsfL  = 10;
   gs.leftBound  = Boundary_t::Mur1;
   gs.rightBound = Boundary_t::Mur1;
-  gs.sourcetype = Source_t::Ricker;
+  gs.sourcetype = Source_t::Gaussian;
   gs.fname = "results.dat";
   
   Grid1D g(gs);
@@ -18,6 +18,7 @@ int main(void)
   g.open_result_file();
 
   for (size_t n = 0; n < g.tsteps(); n++){
+
     g.update_magnetic();
     g.update_tfsf_magnetic(n);
 
