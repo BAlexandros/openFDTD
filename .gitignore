@@ -1,7 +1,5 @@
 *.o
 *.dat
 bin/*
-!bin/.gitkeep
 build/*
-!build/.gitkeep
 tools/*

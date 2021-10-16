@@ -8,13 +8,12 @@ grid as formulated by Kane S. Yee.
 
 ## Installation
 
-In order to run this program, clone the repository
-and enter the build directory
+In order to run this program, clone the repository and
+from the top directory run:
 
 ```bash
-cd build
-cmake ..
-make
+cmake -S . -B build
+make -C build
 ```
 
 The binary file is generated in the project's `bin`
