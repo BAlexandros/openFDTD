@@ -1,4 +1,4 @@
-#include "../headers/materials.hpp"
+#include "../include/materials.hpp"
 
 std::map<std::string, Material> materialdb = {
   {"Air",   Material("Air"  , 1.0,  1.0) },

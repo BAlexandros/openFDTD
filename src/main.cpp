@@ -1,19 +1,18 @@
-#include "headers/grid1D.hpp"
+#include "../include/grid1D.hpp"
 
 int main(void)
 {
   Grid1Dsettings gs;
-  gs.Nx     = 200;
-  gs.Nt     = 400;
-  gs.tfsfL  = 10;
+  gs.Nx     = 120;
+  gs.Nt     = 220;
+  gs.tfsfL  = 20;
   gs.leftBound  = Boundary_t::Mur1;
   gs.rightBound = Boundary_t::Mur1;
   gs.sourcetype = Source_t::Gaussian;
-  gs.fname = "results.dat";
+  gs.fname = "./data/results.dat";
   
   Grid1D g(gs);
-  g.add_material(40,170,"PTFE");
-  g.add_material(100,110,"Glass");
+  g.add_material(60,80,"Glass");
   g.update_coefs();
   g.open_result_file();
 

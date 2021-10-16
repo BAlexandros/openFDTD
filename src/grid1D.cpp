@@ -1,4 +1,4 @@
-#include "../headers/grid1D.hpp"
+#include "../include/grid1D.hpp"
 
 Grid1D::Grid1D(Grid1Dsettings gs){
   E0 = gs.E0;
