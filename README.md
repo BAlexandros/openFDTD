@@ -20,7 +20,7 @@ The binary file is generated in the project's `bin`
 directory.
 
 ## Gallery
-|<img src="./gallery/1D_TFSF_glass.gif" width="480" height="400"/>|
+|<img src="./gallery/1D_FDTD_demo.gif" width="480" height="400"/>|
 |:--:|
 | *1D FDTD with TFSF, material, and 1st order Mur ABC* |
 
@@ -30,8 +30,9 @@ directory.
   - [x] Simple Mur boundary conditions
   - [x] Total Field - Scattered Field formulation
   - [x] Materials in grid
-  - [ ] Automatic calculation of required parameters
+  - [x] Automatic calculation of required parameters
   - [ ] Specral analysis
+  - [ ] Lossy materials
   - [ ] More sophisticated boundary conditions
 * Two dimension
   - *TODO* 

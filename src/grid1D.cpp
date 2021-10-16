@@ -7,12 +7,16 @@ Grid1D::Grid1D(Grid1Dsettings gs){
   T  = 1.0/f;
   st = gs.sourcetype;
 
-  Nx = gs.Nx;
-  Nt = gs.Nt;
+  Nl = gs.Nl;
+  dmin = gs.dmin;
+  Nd   = gs.Nd;
   Sc = gs.Sc;
-  dx = lambda/20.0;
+  dx = (lambda/Nl < dmin/Nd) ? lambda/Nl : dmin/Nd;
   dt = Sc*dx/cc;
   tfsfL = gs.tfsfL;
+  Nx = gs.Nx;
+  Nt = 6.0*Nx*dx/cc/dt;
+  std::cout << "Nt: " << Nt << "\n";
 
   lbt = gs.leftBound;
   rbt = gs.rightBound;
@@ -37,16 +41,24 @@ void Grid1D::init_vacuum(){
     epsr[i] = 1.0;
     mur[i]  = 1.0;
   }
+  std::cout << "dx = " << dx << "\n";
   return;
 }
 
 void Grid1D::add_material(double iL, double iR,
     std::string mname){
+  double erm = materialdb[mname].epsr;
+  double mrm = materialdb[mname].mur;
   for (size_t i = iL; i < iR; i++){
-    epsr[i] = materialdb[mname].epsr;
-    mur[i]  = materialdb[mname].mur;
+    epsr[i] = erm;
+    mur[i]  = mrm;
   }
   material_list.push_back(materialdb[mname]);
+  double lambda_mat = cc / sqrt(erm*mrm) / f;
+  double dxnew = lambda_mat / Nl;
+  dx = (dxnew < dx) ? dxnew : dx;
+  dt = Sc*dx/cc;
+  std::cout << "dx after " << mname << " added: " << dx << "\n";
   return;
 }
 
@@ -139,8 +151,8 @@ size_t Grid1D::tsteps(){
 }
 
 double Grid1D::gaussian(double t, double x, double f){
-  double tau = 0.5/f;
-  double t0  = 5.0*tau;
+  double tau = 0.1/f;
+  double t0  = 3.0*tau;
   double c   = (t - x/cc - t0)/tau;
   return exp(-c*c);
 }
@@ -150,7 +162,7 @@ double Grid1D::sinusoidal(double t, double x, double f){
 }
 
 double Grid1D::ricker(double t, double x, double f){
-  double d = 1.5/f;
+  double d = 2.5/f;
   double c = M_PI*f*(t - x/cc - d);
   return (1.0 - 2.0*c*c)*exp(-c*c);
 }
