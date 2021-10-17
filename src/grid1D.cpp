@@ -15,24 +15,32 @@ Grid1D::Grid1D(Grid1Dsettings gs){
   dt = Sc*dx/cc;
   tfsfL = gs.tfsfL;
   Nx = gs.Nx;
-  Nt = 6.0*Nx*dx/cc/dt;
+  Nt = 30.0*Nx*dx/cc/dt;
   std::cout << "Nt: " << Nt << "\n";
 
   lbt = gs.leftBound;
   rbt = gs.rightBound;
 
-  fname = gs.fname;
+  field_fname = gs.field_fname;
+  spectral_fname = gs.spectral_fname;
 
   epsr = new double[Nx]();
   mur  = new double[Nx]();
 
-  init_vacuum();
+  Nf = Nt+1;
+  fm = 0.5/dt;
+  df = fm/Nf;
 
   Ce = new double[Nx]();
   Ch = new double[Nx]();
 
   Ez = new double[Nx]();
   Hy = new double[Nx]();
+  
+  Ks = new std::complex<double>[Nf]();
+  Rf = new std::complex<double>[Nf]();
+  Tf = new std::complex<double>[Nf]();
+  Sf = new std::complex<double>[Nf]();
 
 }
 
@@ -43,6 +51,38 @@ void Grid1D::init_vacuum(){
   }
   std::cout << "dx = " << dx << "\n";
   return;
+}
+
+void Grid1D::init_kernels(){
+
+  std::complex<double> j(0,1);
+  for (size_t fi = 0; fi < Nf; fi++){
+    Ks[fi] = exp(-j*2.0*M_PI*dt*(fi*df-fm));
+  }
+  return;
+}
+
+void Grid1D::update_kernels(double n){
+
+  for (size_t fi = 0; fi < Nf; fi++){
+    Rf[fi] += std::pow(Ks[fi],n)*Ez[2];
+    Tf[fi] += std::pow(Ks[fi],n)*Ez[Nx-3];
+    if (st == Source_t::Gaussian){
+      Sf[fi] += std::pow(Ks[fi],n)*gaussian(n*dt,0,f);
+    } else if 
+       (st == Source_t::Ricker){
+      Sf[fi] += std::pow(Ks[fi],n)*ricker(n*dt,0,f);
+    }
+  }
+  return;
+}
+
+void Grid1D::finalize_kernels(){
+  for (size_t fi = 0; fi < Nf; fi++){
+    Rf[fi] *= dt;
+    Tf[fi] *= dt;
+    Sf[fi] *= dt;
+  }
 }
 
 void Grid1D::add_material(double iL, double iR,
@@ -58,6 +98,8 @@ void Grid1D::add_material(double iL, double iR,
   double dxnew = lambda_mat / Nl;
   dx = (dxnew < dx) ? dxnew : dx;
   dt = Sc*dx/cc;
+  fm = 0.5/dt;
+  df = 1.0/(Nt*dt);
   std::cout << "dx after " << mname << " added: " << dx << "\n";
   return;
 }
@@ -101,7 +143,7 @@ void Grid1D::update_electric(){
 void Grid1D::update_tfsf_electric(size_t n){
   // TFSF correction for Ez
   if (st == Source_t::Gaussian){
-    Ez[tfsfL] += Ce[tfsfL]*gaussian((n+0.5)*dt,-dx/2.0,f)/sqrt(mu0/eps0);;
+    Ez[tfsfL] += Ce[tfsfL]*gaussian((n+0.5)*dt,-dx/2.0,f)/sqrt(mu0/eps0);
   } 
   else if (st == Source_t::Sinusoidal){
     Ez[tfsfL] += Ce[tfsfL]*sinusoidal((n+0.5)*dt,-dx/2.0,f)/sqrt(mu0/eps0);
@@ -128,22 +170,36 @@ void Grid1D::update_ABC(){
 }
 
 void Grid1D::open_result_file(){
-  handle.open(fname);
+  fhandle.open(field_fname);
+  shandle.open(spectral_fname);
   return;
 }
 
 void Grid1D::close_result_file(){
-  handle.close();
+  fhandle.close();
+  shandle.close();
   return;
 }
 
-void Grid1D::save_fields(){
-  // Print to file
-  handle << "\n\n";
+void Grid1D::save_results(){
+  fhandle << "\n\n";
   for (size_t i = 0; i < Nx; i++){
-    handle << i*dx << " " << Ez[i] << " " << Hy[i] << "\n";
+    fhandle << i*dx << " " << Ez[i] << " " << Hy[i] << "\n";
   }
   return;
+}
+
+void Grid1D::save_spectrum(){
+  for (size_t i = 0; i < Nf; i++){
+    double Ri = pow(std::abs(Rf[i]/Sf[i]),2);
+    double Ti = pow(std::abs(Tf[i]/Sf[i]),2);
+    if (  Ri + Ti <= 1.001 && Ri + Ti >= 0.999){
+      shandle << -fm + i*df << " " <<  Ri     \
+                            << " " <<  Ti     \
+                            << " " <<  Ri+Ti  \
+                            << "\n";
+    }
+  }
 }
 
 size_t Grid1D::tsteps(){
@@ -174,5 +230,9 @@ Grid1D::~Grid1D(){
   if (!Ch)   { delete[] Ch;   }
   if (!Ez)   { delete[] Ez;   }
   if (!Hy)   { delete[] Hy;   }
+  if (!Ks)   { delete[] Ks;   }
+  if (!Rf)   { delete[] Rf;   }
+  if (!Tf)   { delete[] Tf;   }
+  if (!Sf)   { delete[] Tf;   }
 }
 

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <cmath> 
 #include <vector>
+#include <complex>
 #include "materials.hpp"
 
 enum class Boundary_t { PEC, Mur1};
@@ -16,7 +17,8 @@ struct Grid1Dsettings {
     double E0 = 1.0;      // Signal amplitude
     double f  = 1.0e6;       // Peak frequency
     Source_t sourcetype = Source_t::Gaussian;    // Source type
-    std::string fname = "results.dat";
+    std::string field_fname = "data/fields.dat";
+    std::string spectral_fname = "data/spectrum.dat";
 
     // Grid information
     size_t Nx;                      // Total spatial steps
@@ -27,6 +29,10 @@ struct Grid1Dsettings {
     size_t tfsfL;                   // Left  TFSF boundary
     Boundary_t leftBound = Boundary_t::Mur1;
     Boundary_t rightBound = Boundary_t::Mur1;
+
+    size_t Nf = 50;
+    double fm = 1.0e7;
+    double df = 1.0e7;
     
 };
 
@@ -68,10 +74,21 @@ class Grid1D
     double* Ch;     // Coefficient for H
     double* Ez;     // E field values
     double* Hy;     // M field values
+    std::complex<double>* Rf;
+    std::complex<double>* Tf;
+    std::complex<double>* Sf;
     
+    // Fourier transforms
+    std::complex<double> * Ks;     // The kernels
+    size_t   Nf;     // Number of frequencies
+    double   fm;     // The max frequency
+    double   df;     // The frequency resolution
+
     // File to save
-    std::string fname = "out.dat";
-    std::ofstream handle;
+    std::string field_fname;
+    std::string spectral_fname;
+    std::ofstream fhandle;
+    std::ofstream shandle;
 
   public:
     
@@ -99,10 +116,16 @@ class Grid1D
     void setup_ABC();
     void update_ABC();
     
+    // Fourier Transforms
+    void init_kernels();
+    void update_kernels(double n);
+    void finalize_kernels();
+
     // Field data output
     void open_result_file();
     void close_result_file();
-    void save_fields();
+    void save_results();
+    void save_spectrum();
 
     // Return the number of total time steps Nt
     size_t tsteps();

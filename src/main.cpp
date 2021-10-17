@@ -9,15 +9,17 @@ int main(void)
   gs.f      = 1.0e9;
   gs.leftBound  = Boundary_t::Mur1;
   gs.rightBound = Boundary_t::Mur1;
-  gs.sourcetype = Source_t::Gaussian;
-  gs.fname = "./data/results.dat";
+  gs.sourcetype = Source_t::Ricker;
   
   Grid1D g(gs);
+  g.init_vacuum();
   g.add_material(80,120,"Glass");
   g.add_material(85,115,"Glycerin");
 
   g.update_coefs();
   g.open_result_file();
+
+  g.init_kernels();
 
   for (size_t n = 0; n < g.tsteps(); n++){
 
@@ -29,8 +31,13 @@ int main(void)
     g.update_ABC();
     g.update_tfsf_electric(n);
 
-    g.save_fields();
+    g.update_kernels(n);
+
+    g.save_results();
   }
+
+  g.finalize_kernels();
+  g.save_spectrum();
 
   g.close_result_file();
   
