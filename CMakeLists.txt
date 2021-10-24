@@ -4,7 +4,7 @@ project(openFDTD
   DESCRIPTION "A free and open source FDTD solver"
   LANGUAGES CXX)
 
-set(CMAKE_CXX_FLAGS "-Wall -Wpedantic -Wextra")
+set(CMAKE_CXX_FLAGS "-Wall -Wpedantic -Wextra -fopenmp")
 
 set(CMAKE_SOURCE_DIR ..)
 include_directories(${CMAKE_SOURCE_DIR}/include)

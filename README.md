@@ -1,6 +1,6 @@
 # openFDTD 
 
-A free and open source program to simulate electromagnetic
+An open source program to simulate electromagnetic
 signals and interactions with materials. 
 
 The simulations employ the FDTD method, on a staggered
@@ -16,28 +16,26 @@ cmake -S . -B build
 make -C build
 ```
 
-The binary file is generated in the project's `bin`
-directory.
+The binary file `openFDTD` is generated in the project's
+`bin` directory.
 
 ## Gallery
 |<img src="./gallery/1D_FDTD_demo.gif" width="480" height="400"/>|
 |:--:|
 | *1D FDTD with TFSF, material, and 1st order Mur ABC* |
 
-## Features
+## Planned Features
 * One dimension
   - [x] Simple propagation
   - [x] Simple Mur boundary conditions
   - [x] Total Field - Scattered Field formulation
   - [x] Materials in grid
   - [x] Automatic calculation of required parameters
-  - [ ] Specral analysis
+  - [x] Specral analysis
   - [ ] Lossy materials
   - [ ] More sophisticated boundary conditions
 * Two dimension
-  - *TODO* 
 * Three dimension
-  - *TODO* 
+  - [ ] Implement a mesher for 3D objects (ex: `.stl` file to cubic grid)
 * General
   - [ ] Create a GUI
-  - [ ] Implement a more sophisticated mesher

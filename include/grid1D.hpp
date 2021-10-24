@@ -9,31 +9,12 @@
 #include "materials.hpp"
 
 enum class Boundary_t { PEC, Mur1};
-enum class Source_t { Gaussian, Sinusoidal, Ricker };
+enum class Source_t { Gaussian, Sinusoidal, Ricker, Custom };
 
-struct Grid1Dsettings {
-
-    // Source information
-    double E0 = 1.0;      // Signal amplitude
-    double f  = 1.0e6;       // Peak frequency
-    Source_t sourcetype = Source_t::Gaussian;    // Source type
-    std::string field_fname = "data/fields.dat";
-    std::string spectral_fname = "data/spectrum.dat";
-
-    // Grid information
-    size_t Nx;                      // Total spatial steps
-    double Nl = 20;                 // Cell resolution
-    double dmin = 10000;            // Finest detail in grid
-    double Nd   = 1;                // Sampled points in dmin
-    double Sc = 1;                  // Courant 
-    size_t tfsfL;                   // Left  TFSF boundary
-    Boundary_t leftBound = Boundary_t::Mur1;
-    Boundary_t rightBound = Boundary_t::Mur1;
-
-    size_t Nf = 50;
-    double fm = 1.0e7;
-    double df = 1.0e7;
-    
+struct GridMat {
+  size_t x1;
+  size_t x2;
+  std::string matname;
 };
 
 class Grid1D
@@ -46,9 +27,9 @@ class Grid1D
     // Grid information
     size_t Nx;      // Total spatial steps
     size_t Nt;      // Total time steps
-    double Nl;      // Cell resolution
-    double dmin;    // Finest detail in grid
-    double Nd;      // Sampled points in dmin
+    size_t Nl;      // Cell resolution
+    double dm;      // Finest detail in grid
+    size_t Nd;      // Sampled points in dmin
     double dx;      // Spatial step
     double dt;      // Time step
     double Sc;      // Courant 
@@ -57,7 +38,7 @@ class Grid1D
     Boundary_t rbt; // Right Boundary condition
     double EzBL;    // Temporary variable to facilitate ABC
     double EzBR;    // Temporary variable to facilitate ABC
-    std::vector<Material> material_list = { materialdb["Air"] };
+    std::vector<GridMat> material_list;
                     // List of materials inside the grid
     
     // Source information
@@ -66,6 +47,8 @@ class Grid1D
     double T;       // Period
     double lambda;  // Wavelength
     Source_t st;    // Source type
+    double (Grid1D::*sourcefunc)(double,double); // Source function
+    double (*othersource)(double,double);        // Custom source
 
     // FDTD arrays
     double* epsr;   // Relative eps
@@ -74,66 +57,87 @@ class Grid1D
     double* Ch;     // Coefficient for H
     double* Ez;     // E field values
     double* Hy;     // M field values
-    std::complex<double>* Rf;
-    std::complex<double>* Tf;
-    std::complex<double>* Sf;
-    
+
     // Fourier transforms
-    std::complex<double> * Ks;     // The kernels
-    size_t   Nf;     // Number of frequencies
-    double   fm;     // The max frequency
-    double   df;     // The frequency resolution
+    std::complex<double> *Ks;   // The kernels
+    std::complex<double> *Rf;   // Reflection Fourier array
+    std::complex<double> *Tf;   // Transmission Fourier array
+    std::complex<double> *Sf;   // Source Fourier array
+    size_t Nf;                  // Number of frequencies
+    double fm;                  // The max frequency
+    double df;                  // The frequency resolution
 
     // File to save
-    std::string field_fname;
-    std::string spectral_fname;
-    std::ofstream fhandle;
-    std::ofstream shandle;
+    std::string   field_fname;    // filename to save field
+    std::string   spectrum_fname; // filename to save spectrum
+    std::ofstream fhandle;        // field file handle
+    std::ofstream shandle;        // specrrum file handle
+
+    // Simulation settings
+    bool parallelism_enabled  = false;
+    bool save_field_progress  = false;
+    bool save_refl_trans_spec = false;
 
   public:
     
-    Grid1D(Grid1Dsettings gs);
+    Grid1D();
 
-    // Initialize the grid to vacuum
-    void init_vacuum();
+    // Initializers
+    void init_coefs();   // Initialize update coefficients
+    void init_fields();  // Initialize E and H fields
+    void init_kernels(); // Initialize complex kernels
+    void init_fourier(); // Initialize Fourier transformations
+    void init_ABC();     // Initialize Absorbing Boundary vars
 
     // Add a material spanning from iL to iR
-    void add_material(double iL, double iR,
+    void add_material(size_t iL, size_t iR,
                       std::string mname);
 
     // Update the Ce and Ch coefficients of the grid
-    void update_coefs();
-
-    // Update the fields
     void update_magnetic();
     void update_electric();
-
-    // Update the TFSF boundary
+    void update_ABC();
     void update_tfsf_magnetic(size_t n);
     void update_tfsf_electric(size_t n);
-    
-    // Store and use values for ABC
-    void setup_ABC();
-    void update_ABC();
+    void update_fourier(double n);
     
     // Fourier Transforms
-    void init_kernels();
-    void update_kernels(double n);
     void finalize_kernels();
 
     // Field data output
     void open_result_file();
     void close_result_file();
-    void save_results();
+    void save_cur_field();
     void save_spectrum();
 
-    // Return the number of total time steps Nt
-    size_t tsteps();
+    // Execute the simulation
+    void run_simulation();
 
     // The available sources for the 1D grid
-    double gaussian(double t, double x, double f);
-    double sinusoidal(double t, double x, double f);
-    double ricker(double t, double x, double f);
+    double gaussian(double q, double m);
+    double sinusoidal(double q, double m);
+    double ricker(double q, double m);
+
+    // Parallelism flag
+    void enable_parallelism();
+    void disable_parallelism();
+
+    // Parameter setters
+    void setE0(double);
+    void setFreq(double);
+    void setSourceType(Source_t);
+    void setSc(double);
+    void setNx(size_t);
+    void setNt(size_t);
+    void setNl(size_t);
+    void setNd(size_t);
+    void setdm(double);
+    void setFieldProgFname(std::string);
+    void setSpectrumFname(std::string);
+    void recordFieldProgTrue();
+    void recordFieldProgFalse();
+    void recordRefTranSpectTrue();
+    void recordRefTranSpectFalse();
 
     ~Grid1D();
 };

@@ -1,78 +1,86 @@
 #include "../include/grid1D.hpp"
 
-Grid1D::Grid1D(Grid1Dsettings gs){
-  E0 = gs.E0;
-  f  = gs.f;
-  lambda = cc/f;
-  T  = 1.0/f;
-  st = gs.sourcetype;
-
-  Nl = gs.Nl;
-  dmin = gs.dmin;
-  Nd   = gs.Nd;
-  Sc = gs.Sc;
-  dx = (lambda/Nl < dmin/Nd) ? lambda/Nl : dmin/Nd;
-  dt = Sc*dx/cc;
-  tfsfL = gs.tfsfL;
-  Nx = gs.Nx;
-  Nt = 30.0*Nx*dx/cc/dt;
-  std::cout << "Nt: " << Nt << "\n";
-
-  lbt = gs.leftBound;
-  rbt = gs.rightBound;
-
-  field_fname = gs.field_fname;
-  spectral_fname = gs.spectral_fname;
-
-  epsr = new double[Nx]();
-  mur  = new double[Nx]();
-
-  Nf = Nt+1;
-  fm = 0.5/dt;
-  df = fm/Nf;
-
-  Ce = new double[Nx]();
-  Ch = new double[Nx]();
-
-  Ez = new double[Nx]();
-  Hy = new double[Nx]();
-  
-  Ks = new std::complex<double>[Nf]();
-  Rf = new std::complex<double>[Nf]();
-  Tf = new std::complex<double>[Nf]();
-  Sf = new std::complex<double>[Nf]();
+Grid1D::Grid1D(){
+  st = Source_t::Gaussian;
+  sourcefunc = &Grid1D::gaussian;
+  Nl = 20;
+  Nd = 20;
+  dm = 1e10;
+  dx = 1e10;
+  tfsfL = 30;
+  Sc = 1.0;
+  lbt = Boundary_t::Mur1;
+  rbt = Boundary_t::Mur1;
+  field_fname = "";
+  spectrum_fname = "";
 
 }
 
-void Grid1D::init_vacuum(){
+void Grid1D::init_fields(){
+  Ez = new double[Nx]();
+  Hy = new double[Nx]();
+  return;
+}
+
+void Grid1D::init_coefs(){
+  epsr = new double[Nx]();
+  mur  = new double[Nx]();
+  Ce = new double[Nx]();
+  Ch = new double[Nx]();
+  #pragma omp parallel for if(parallelism_enabled) \
+                           firstprivate(dx,dt)\
+                           shared(epsr,mur,Ce,Ch)
   for (size_t i = 0; i < Nx; i++){
     epsr[i] = 1.0;
     mur[i]  = 1.0;
+    Ce[i] = dt / (eps0*epsr[i]) / dx;
+    Ch[i] = dt / (mu0*mur[i])   / dx;
   }
-  std::cout << "dx = " << dx << "\n";
+  #pragma omp parallel for if(parallelism_enabled) \
+                           firstprivate(dx,dt)\
+                           shared(material_list,epsr,mur,Ce,Ch)
+  for (size_t i = 0; i < material_list.size(); i++){
+    GridMat cur_mat = material_list[i];
+    for (size_t x = cur_mat.x1; x < cur_mat.x2; x++){
+      epsr[x] = materialdb[cur_mat.matname].epsr;
+      mur[x]  = materialdb[cur_mat.matname].mur;
+    }
+    for (size_t x = cur_mat.x1; x < cur_mat.x2; x++){
+      Ce[x] = dt / (eps0*epsr[x]) / dx;
+      Ch[x] = dt / (mu0*mur[x])   / dx;
+    }
+  }
   return;
 }
 
 void Grid1D::init_kernels(){
+  fm = 0.5/dt;      std::cout<< fm << "\n";
+  df = 1.0/Nt/dt;   std::cout<< df << "\n";
+  Nf = Nt;       std::cout<< Nt << "\n";
+  Ks = new std::complex<double>[Nf]();
 
   std::complex<double> j(0,1);
   for (size_t fi = 0; fi < Nf; fi++){
-    Ks[fi] = exp(-j*2.0*M_PI*dt*(fi*df-fm));
+    Ks[fi] = exp(-j*2.0*M_PI*dt*(fi*df));
   }
   return;
 }
 
-void Grid1D::update_kernels(double n){
+void Grid1D::init_fourier(){
+  Rf = new std::complex<double>[Nf]();
+  Tf = new std::complex<double>[Nf]();
+  Sf = new std::complex<double>[Nf]();
+  return;
+}
 
+void Grid1D::update_fourier(double n){
+
+  #pragma omp parallel for if(parallelism_enabled) \
+                           shared(Rf,Tf,Sf,Ks,Ez)
   for (size_t fi = 0; fi < Nf; fi++){
-    Rf[fi] += std::pow(Ks[fi],n)*Ez[2];
-    Tf[fi] += std::pow(Ks[fi],n)*Ez[Nx-3];
-    if (st == Source_t::Gaussian){
-      Sf[fi] += std::pow(Ks[fi],n)*gaussian(n*dt,0,f);
-    } else if 
-       (st == Source_t::Ricker){
-      Sf[fi] += std::pow(Ks[fi],n)*ricker(n*dt,0,f);
-    }
+    Rf[fi] += std::pow(Ks[fi],n)*Ez[1];
+    Tf[fi] += std::pow(Ks[fi],n)*Ez[Nx-2];
+    Sf[fi] += std::pow(Ks[fi],n)*(this->*sourcefunc)(n,0);
   }
   return;
 }
@@ -85,34 +93,14 @@ void Grid1D::finalize_kernels(){
   }
 }
 
-void Grid1D::add_material(double iL, double iR,
+void Grid1D::add_material(size_t iL, size_t iR,
     std::string mname){
-  double erm = materialdb[mname].epsr;
-  double mrm = materialdb[mname].mur;
-  for (size_t i = iL; i < iR; i++){
-    epsr[i] = erm;
-    mur[i]  = mrm;
-  }
-  material_list.push_back(materialdb[mname]);
-  double lambda_mat = cc / sqrt(erm*mrm) / f;
-  double dxnew = lambda_mat / Nl;
-  dx = (dxnew < dx) ? dxnew : dx;
-  dt = Sc*dx/cc;
-  fm = 0.5/dt;
-  df = 1.0/(Nt*dt);
-  std::cout << "dx after " << mname << " added: " << dx << "\n";
-  return;
-}
-
-void Grid1D::update_coefs(){
-  for (size_t i = 0; i < Nx; i++){
-    Ce[i] = dt / (eps0*epsr[i]) / dx;
-    Ch[i] = dt / (mu0*mur[i])   / dx;
-  }
+  material_list.push_back(GridMat{iL,iR,mname});
   return;
 }
 
 void Grid1D::update_magnetic(){
+  #pragma omp simd if(parallelism_enabled) 
   for (size_t i = 0; i < Nx - 1; i++){
     Hy[i] = Hy[i] + Ch[i]*(Ez[i+1] - Ez[i]);
   }
@@ -121,19 +109,12 @@ void Grid1D::update_magnetic(){
 
 void Grid1D::update_tfsf_magnetic(size_t n){
   // TFSF correction for Hy
-  if (st == Source_t::Gaussian){
-    Hy[tfsfL-1] -= Ch[tfsfL-1]*gaussian(n*dt,0,f);
-  } 
-  else if (st == Source_t::Sinusoidal){
-    Hy[tfsfL-1] -= Ch[tfsfL-1]*sinusoidal(n*dt,0,f);
-  } 
-  else if (st == Source_t::Ricker){
-    Hy[tfsfL-1] -= Ch[tfsfL-1]*ricker(n*dt,0,f);
-  }
+  Hy[tfsfL-1] -= Ch[tfsfL-1]*(this->*sourcefunc)(n,0);
   return;
 }
 
 void Grid1D::update_electric(){
+  #pragma omp simd if(parallelism_enabled)
   for (size_t i = 1; i < Nx - 1; i++){
     Ez[i] = Ez[i] + Ce[i]*(Hy[i] - Hy[i-1]);
   }
@@ -141,20 +122,11 @@ void Grid1D::update_electric(){
 }
 
 void Grid1D::update_tfsf_electric(size_t n){
-  // TFSF correction for Ez
-  if (st == Source_t::Gaussian){
-    Ez[tfsfL] += Ce[tfsfL]*gaussian((n+0.5)*dt,-dx/2.0,f)/sqrt(mu0/eps0);
-  } 
-  else if (st == Source_t::Sinusoidal){
-    Ez[tfsfL] += Ce[tfsfL]*sinusoidal((n+0.5)*dt,-dx/2.0,f)/sqrt(mu0/eps0);
-  } 
-  else if (st == Source_t::Ricker){
-    Ez[tfsfL] += Ce[tfsfL]*ricker((n+0.5)*dt,-dx/2.0,f)/sqrt(mu0/eps0);
-  }
+  Ez[tfsfL] += Ce[tfsfL]*(this->*sourcefunc)(n+0.5,-0.5)/sqrt(mu0*mur[tfsfL]/(eps0*epsr[tfsfL]));
   return;
 }
 
-void Grid1D::setup_ABC(){
+void Grid1D::init_ABC(){
   EzBL = Ez[1];
   EzBR = Ez[Nx-2];
   return;
@@ -170,8 +142,8 @@ void Grid1D::update_ABC(){
 }
 
 void Grid1D::open_result_file(){
-  fhandle.open(field_fname);
-  shandle.open(spectral_fname);
+  fhandle.open("./data/"+field_fname);
+  shandle.open("./data/"+spectrum_fname);
   return;
 }
 
@@ -181,7 +153,7 @@ void Grid1D::close_result_file(){
   return;
 }
 
-void Grid1D::save_results(){
+void Grid1D::save_cur_field(){
   fhandle << "\n\n";
   for (size_t i = 0; i < Nx; i++){
     fhandle << i*dx << " " << Ez[i] << " " << Hy[i] << "\n";
@@ -193,34 +165,148 @@ void Grid1D::save_spectrum(){
   for (size_t i = 0; i < Nf; i++){
     double Ri = pow(std::abs(Rf[i]/Sf[i]),2);
     double Ti = pow(std::abs(Tf[i]/Sf[i]),2);
-    if (  Ri + Ti <= 1.001 && Ri + Ti >= 0.999){
-      shandle << -fm + i*df << " " <<  Ri     \
-                            << " " <<  Ti     \
-                            << " " <<  Ri+Ti  \
-                            << "\n";
-    }
+    shandle << i*df << " " <<  Ri     \
+                          << " " <<  Ti     \
+                          << " " <<  Ri+Ti  \
+                          << "\n";
   }
 }
 
-size_t Grid1D::tsteps(){
-  return Nt;
+void Grid1D::run_simulation(){
+
+  init_coefs();
+  std::cout << "Coefficients initialized\n";
+  init_fields();
+  std::cout << "Fields initialized\n";
+  init_kernels();
+  std::cout << "Kernels initialized\n";
+  init_fourier();
+  std::cout << "Fourier initialized\n";
+  open_result_file();
+
+  for (size_t n = 0; n < Nt; n++){
+
+    update_magnetic();
+    update_tfsf_magnetic(n);
+
+    init_ABC();
+    update_electric();
+    update_ABC();
+    update_tfsf_electric(n);
+
+    update_fourier(n);
+
+    save_cur_field();
+  }
+
+  // finalize_kernels();
+  save_spectrum();
+
+  close_result_file();
+
+  std::cout << "Simulation Complete\n";
+  return;
 }
 
-double Grid1D::gaussian(double t, double x, double f){
-  double tau = 0.1/f;
-  double t0  = 3.0*tau;
-  double c   = (t - x/cc - t0)/tau;
+double Grid1D::gaussian(double q, double m){
+  double tau = 0.5/f;
+  double t0  = 6.0*tau;
+  double c   = (q*dt - m*dx/cc - t0)/tau;
   return exp(-c*c);
 }
 
-double Grid1D::sinusoidal(double t, double x, double f){
-  return sin(2.0*M_PI*f*(t - x/cc));
+double Grid1D::sinusoidal(double q, double m){
+  return sin(2.0*M_PI*f*(q*dt - m*dx/cc));
 }
 
-double Grid1D::ricker(double t, double x, double f){
+double Grid1D::ricker(double q, double m){
   double d = 2.5/f;
-  double c = M_PI*f*(t - x/cc - d);
+  double c = M_PI*f*(q*dt - m*dx/cc - d);
   return (1.0 - 2.0*c*c)*exp(-c*c);
+}
+
+void Grid1D::enable_parallelism(){
+  parallelism_enabled = true;
+  return;
+}
+
+void Grid1D::disable_parallelism(){
+  parallelism_enabled = false;
+  return;
+}
+
+void Grid1D::setE0(double E0_){
+  E0 = E0_;
+  return;
+}
+
+void Grid1D::setFreq(double f_){
+  f = f_;
+  T = 1.0/f;
+  lambda = cc/f;
+  dx = (lambda/Nl < dx) ? lambda/Nl : dx;
+  return;
+}
+
+void Grid1D::setSourceType(Source_t st_){
+  st = st_;
+  if (st == Source_t::Gaussian){
+    sourcefunc = &Grid1D::gaussian;
+  } else if
+     (st == Source_t::Ricker){
+    sourcefunc = &Grid1D::ricker;
+  } else if
+     (st == Source_t::Sinusoidal){
+    sourcefunc = &Grid1D::sinusoidal;
+  } 
+  return;
+}
+
+void Grid1D::setSc(double Sc_){
+  Sc = Sc_;
+  dt = Sc*dx/cc;
+  return;
+}
+
+void Grid1D::setNx(size_t Nx_){
+  Nx = Nx_;
+  return;
+}
+
+void Grid1D::setNl(size_t Nl_){
+  Nl = Nl_;
+  dx = (lambda/Nl < dx) ? lambda/Nl : dx;
+  dt = Sc*dx/cc;
+  return;
+}
+
+void Grid1D::setdm(double dm_){
+  dm = dm_;
+  dx = (dm/Nd < dx) ? dm/Nd : dx;
+  dt = Sc*dx/cc;
+  return;
+}
+
+void Grid1D::setNd(size_t Nd_){
+  Nd = Nd_;
+  dx = (dm/Nd < dx) ? dm/Nd : dx;
+  dt = Sc*dx/cc;
+  return;
+}
+
+void Grid1D::setNt(size_t Nt_){
+  Nt = Nt_;
+  return;
+}
+
+void Grid1D::setFieldProgFname(std::string fn){
+  field_fname = fn;
+  return;
+}
+
+void Grid1D::setSpectrumFname(std::string fn){
+  spectrum_fname = fn;
+  return;
 }
 
 Grid1D::~Grid1D(){
@@ -235,4 +321,3 @@ Grid1D::~Grid1D(){
   if (!Tf)   { delete[] Tf;   }
   if (!Sf)   { delete[] Tf;   }
 }
-
