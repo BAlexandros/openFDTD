@@ -3,8 +3,15 @@
 An open source program to simulate electromagnetic
 signals and interactions with materials. 
 
+## Overview
 The simulations employ the FDTD method, on a staggered
 grid as formulated by Kane S. Yee.
+
+## Dependencies
+The following dependencies are required to render the GUI.
+- [Dear ImGui](https://github.com/ocornut/imgui)
+- OpenGL 3
+- GLFW 3
 
 ## Installation
 
@@ -13,7 +20,7 @@ from the top directory run:
 
 ```bash
 cmake -S . -B build
-make -C build
+cmake --build build/
 ```
 
 The binary file `openFDTD` is generated in the project's

@@ -30,7 +30,7 @@ void Grid1D::init_coefs(){
   #pragma omp parallel for if(parallelism_enabled) \
                            firstprivate(dx,dt)\
                            shared(epsr,mur,Ce,Ch)
-  for (size_t i = 0; i < Nx; i++){
+  for (int i = 0; i < Nx; i++){
     epsr[i] = 1.0;
     mur[i]  = 1.0;
     Ce[i] = dt / (eps0*epsr[i]) / dx;
@@ -39,13 +39,13 @@ void Grid1D::init_coefs(){
   #pragma omp parallel for if(parallelism_enabled) \
                            firstprivate(dx,dt)\
                            shared(material_list,epsr,mur,Ce,Ch)
-  for (size_t i = 0; i < material_list.size(); i++){
+  for (int i = 0; i < material_list.size(); i++){
     GridMat cur_mat = material_list[i];
-    for (size_t x = cur_mat.x1; x < cur_mat.x2; x++){
+    for (int x = cur_mat.x1; x < cur_mat.x2; x++){
       epsr[x] = materialdb[cur_mat.matname].epsr;
       mur[x]  = materialdb[cur_mat.matname].mur;
     }
-    for (size_t x = cur_mat.x1; x < cur_mat.x2; x++){
+    for (int x = cur_mat.x1; x < cur_mat.x2; x++){
       Ce[x] = dt / (eps0*epsr[x]) / dx;
       Ch[x] = dt / (mu0*mur[x])   / dx;
     }
@@ -60,7 +60,7 @@ void Grid1D::init_kernels(){
   Ks = new std::complex<double>[Nf]();
 
   std::complex<double> j(0,1);
-  for (size_t fi = 0; fi < Nf; fi++){
+  for (int fi = 0; fi < Nf; fi++){
     Ks[fi] = exp(-j*2.0*M_PI*dt*(fi*df));
   }
   return;
@@ -77,7 +77,7 @@ void Grid1D::update_fourier(double n){
 
   #pragma omp parallel for if(parallelism_enabled) \
                            shared(Rf,Tf,Sf,Ks,Ez)
-  for (size_t fi = 0; fi < Nf; fi++){
+  for (int fi = 0; fi < Nf; fi++){
     Rf[fi] += std::pow(Ks[fi],n)*Ez[1];
     Tf[fi] += std::pow(Ks[fi],n)*Ez[Nx-2];
     Sf[fi] += std::pow(Ks[fi],n)*(this->*sourcefunc)(n,0);
@@ -86,14 +86,14 @@ void Grid1D::update_fourier(double n){
 }
 
 void Grid1D::finalize_kernels(){
-  for (size_t fi = 0; fi < Nf; fi++){
+  for (int fi = 0; fi < Nf; fi++){
     Rf[fi] *= dt;
     Tf[fi] *= dt;
     Sf[fi] *= dt;
   }
 }
 
-void Grid1D::add_material(size_t iL, size_t iR,
+void Grid1D::add_material(int iL, int iR,
     std::string mname){
   material_list.push_back(GridMat{iL,iR,mname});
   return;
@@ -101,13 +101,13 @@ void Grid1D::add_material(size_t iL, size_t iR,
 
 void Grid1D::update_magnetic(){
   #pragma omp simd if(parallelism_enabled) 
-  for (size_t i = 0; i < Nx - 1; i++){
+  for (int i = 0; i < Nx - 1; i++){
     Hy[i] = Hy[i] + Ch[i]*(Ez[i+1] - Ez[i]);
   }
   return;
 }
 
-void Grid1D::update_tfsf_magnetic(size_t n){
+void Grid1D::update_tfsf_magnetic(int n){
   // TFSF correction for Hy
   Hy[tfsfL-1] -= Ch[tfsfL-1]*(this->*sourcefunc)(n,0);
   return;
@@ -115,13 +115,13 @@ void Grid1D::update_tfsf_magnetic(size_t n){
 
 void Grid1D::update_electric(){
   #pragma omp simd if(parallelism_enabled)
-  for (size_t i = 1; i < Nx - 1; i++){
+  for (int i = 1; i < Nx - 1; i++){
     Ez[i] = Ez[i] + Ce[i]*(Hy[i] - Hy[i-1]);
   }
   return;
 }
 
-void Grid1D::update_tfsf_electric(size_t n){
+void Grid1D::update_tfsf_electric(int n){
   Ez[tfsfL] += Ce[tfsfL]*(this->*sourcefunc)(n+0.5,-0.5)/sqrt(mu0*mur[tfsfL]/(eps0*epsr[tfsfL]));
   return;
 }
@@ -155,14 +155,14 @@ void Grid1D::close_result_file(){
 
 void Grid1D::save_cur_field(){
   fhandle << "\n\n";
-  for (size_t i = 0; i < Nx; i++){
+  for (int i = 0; i < Nx; i++){
     fhandle << i*dx << " " << Ez[i] << " " << Hy[i] << "\n";
   }
   return;
 }
 
 void Grid1D::save_spectrum(){
-  for (size_t i = 0; i < Nf; i++){
+  for (int i = 0; i < Nf; i++){
     double Ri = pow(std::abs(Rf[i]/Sf[i]),2);
     double Ti = pow(std::abs(Tf[i]/Sf[i]),2);
     shandle << i*df << " " <<  Ri     \
@@ -184,7 +184,7 @@ void Grid1D::run_simulation(){
   std::cout << "Fourier initialized\n";
   open_result_file();
 
-  for (size_t n = 0; n < Nt; n++){
+  for (int n = 0; n < Nt; n++){
 
     update_magnetic();
     update_tfsf_magnetic(n);
@@ -203,6 +203,8 @@ void Grid1D::run_simulation(){
   save_spectrum();
 
   close_result_file();
+
+  makeFieldAnimation();
 
   std::cout << "Simulation Complete\n";
   return;
@@ -268,12 +270,12 @@ void Grid1D::setSc(double Sc_){
   return;
 }
 
-void Grid1D::setNx(size_t Nx_){
+void Grid1D::setNx(int Nx_){
   Nx = Nx_;
   return;
 }
 
-void Grid1D::setNl(size_t Nl_){
+void Grid1D::setNl(int Nl_){
   Nl = Nl_;
   dx = (lambda/Nl < dx) ? lambda/Nl : dx;
   dt = Sc*dx/cc;
@@ -287,14 +289,14 @@ void Grid1D::setdm(double dm_){
   return;
 }
 
-void Grid1D::setNd(size_t Nd_){
+void Grid1D::setNd(int Nd_){
   Nd = Nd_;
   dx = (dm/Nd < dx) ? dm/Nd : dx;
   dt = Sc*dx/cc;
   return;
 }
 
-void Grid1D::setNt(size_t Nt_){
+void Grid1D::setNt(int Nt_){
   Nt = Nt_;
   return;
 }
@@ -306,6 +308,26 @@ void Grid1D::setFieldProgFname(std::string fn){
 
 void Grid1D::setSpectrumFname(std::string fn){
   spectrum_fname = fn;
+  return;
+}
+
+void Grid1D::makeFieldAnimation(){
+  std::ofstream gnuplotscript;
+  gnuplotscript.open("tools/plot.g");
+  gnuplotscript << "set terminal gif animate delay 4 optimize\n";
+  gnuplotscript << "set output './gallery/field.gif'\n";
+  gnuplotscript << "stats './data/field.dat' nooutput\n";
+  gnuplotscript << "set yr [" << -2*E0 << ":" << 2*E0 << "]\n";
+  gnuplotscript << "set xlabel \"Spatial step\"\n";
+  gnuplotscript << "set ylabel \"V/m\"\n";
+  gnuplotscript << "unset key\n";
+  gnuplotscript << "do for [i=1:int(STATS_blocks)] {\n";
+  gnuplotscript << "    set title sprintf(\"n = %d\",i+1)\n";
+  gnuplotscript << "    p './data/field.dat' index (i-1) u 0:2 w l t 'Ez'\n";
+  gnuplotscript << "}";
+  gnuplotscript.close();
+  system("gnuplot tools/plot.g");
+  
   return;
 }
 
