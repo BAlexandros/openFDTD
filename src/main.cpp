@@ -3,6 +3,22 @@
 #include "../include/imgui_impl_opengl3.h"
 #include "../include/imgui_impl_glfw.h"
 #include <GLFW/glfw3.h>
+#include <omp.h>
+
+#ifndef __has_include
+static_assert(false, "__has_include not supported");
+#else
+#  if __cplusplus >= 201703L && __has_include(<filesystem>)
+#    include <filesystem>
+namespace fs = std::filesystem;
+#  elif __has_include(<experimental/filesystem>)
+#    include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
+#  elif __has_include(<boost/filesystem.hpp>)
+#    include <boost/filesystem.hpp>
+namespace fs = boost::filesystem;
+#  endif
+#endif
 
 static void glfw_error_callback(int error, const char* description);
 
@@ -15,7 +31,7 @@ int main(void)
     return 1;
   const char* glsl_version = "#version 130";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 
   // Create window with graphics context
   GLFWwindow* window = glfwCreateWindow(1280, 720, "openFDTD", NULL, NULL);
@@ -28,6 +44,12 @@ int main(void)
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO(); (void)io;
+  ImFontConfig fontconfig;
+  fontconfig.OversampleH = 6;
+  fontconfig.OversampleV = 6;
+  fontconfig.GlyphExtraSpacing.x = 1.0f;
+  io.Fonts->AddFontDefault();
+  ImFont* font1 = io.Fonts->AddFontFromFileTTF("fonts/source-sans-pro/SourceSansPro-Semibold.otf", 15, &fontconfig);
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
 
   // Setup Dear ImGui style
@@ -40,6 +62,8 @@ int main(void)
 
   // Our state
   ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+  
+  static bool cleanup_temp_frames_at_exit = true;
 
   // Main loop
   while (!glfwWindowShouldClose(window))
@@ -50,8 +74,38 @@ int main(void)
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    
+    ImGui::PushFont(font1);
 
-    ImGui::Begin("FDTD Settings");
+    ImGui::Begin("FDTD Settings",NULL,ImGuiWindowFlags_MenuBar);
+
+    // Menu Bar
+    static bool show_exit_confirm = false;
+    ImGui::BeginMenuBar();
+    if (ImGui::MenuItem("Exit")){
+      show_exit_confirm = true;
+    }
+    ImGui::EndMenuBar();
+
+    // Exit dialog confirmation
+    if (show_exit_confirm){
+      ImGui::OpenPopup("Exit?");
+
+      ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+      ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+      if (ImGui::BeginPopupModal("Exit?", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+      {
+        ImGui::Text("Are you sure you want to exit?\n\n");
+        ImGui::Separator();
+        if (ImGui::Button("Yes", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); glfwSetWindowShouldClose(window, 1); }
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(120, 0))) { show_exit_confirm = false; ImGui::CloseCurrentPopup(); }
+        ImGui::SetItemDefaultFocus();
+        ImGui::EndPopup();
+      }
+    }
+
 
     /*****************************
      **   DIMENSION SELECTION   **
@@ -62,6 +116,27 @@ int main(void)
     ImGui::RadioButton("2D", &selected_dimN, 2); ImGui::SameLine();
     ImGui::RadioButton("3D", &selected_dimN, 3);
     static Grid1D *g1 = new Grid1D;
+
+    /*****************************
+     **   MULTITHREADING        **
+     *****************************/
+
+    ImGui::Separator();
+    static bool parallelism_enabled_checkbox = false;
+    static int max_num_threads = omp_get_max_threads();
+    static int enabled_thread_num = 1;
+
+    ImGui::Text("Multithreading");
+    ImGui::Checkbox("Enable OpenMP", &parallelism_enabled_checkbox);
+    if (parallelism_enabled_checkbox){
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(100);
+      if (ImGui::SliderInt("Thread number", &enabled_thread_num, 1, max_num_threads, "%d")){
+        omp_set_num_threads(enabled_thread_num);
+      }
+    }
+
+    ImGui::Separator();
 
     ImGui::BeginGroup();
     ImGui::BeginGroup();
@@ -96,22 +171,20 @@ int main(void)
     ImGui::Text("Grid Settings");
     if (selected_dimN == 1){
 
-      ImGui::SetNextItemWidth(100);
-      ImGui::InputInt("Number of spatial steps in grid", &selected_Nx1D, 1, 1);
+      ImGui::PushItemWidth(50);
+      ImGui::InputInt("Number of spatial steps in grid", &selected_Nx1D,0,0);
       if (selected_Nx1D <= 0 ) { selected_Nx1D = 1; };
 
-      ImGui::SetNextItemWidth(100);
-      ImGui::InputInt("Number of time steps to simulate", &selected_Nt1D, 1, 1);
+      ImGui::InputInt("Number of time steps to simulate", &selected_Nt1D,0,0);
       if (selected_Nt1D <= 0 ) { selected_Nt1D = 1; };
 
-      ImGui::SetNextItemWidth(100);
-      ImGui::InputInt("Number of spatial steps per wavelength", &selected_Nl1D, 1, 1);
+      ImGui::InputInt("Number of spatial steps per wavelength", &selected_Nl1D,0,0);
       if (selected_Nl1D <= 0 ) { selected_Nl1D = 1; };
 
-      ImGui::SetNextItemWidth(100);
       ImGui::InputDouble("Courant number", &selected_S1D, 0.0f, 0.0f, "%.2f");
       if (selected_S1D <= 0 ) { selected_S1D = 1; };
       if (selected_S1D > 1) { ImGui::SameLine(); ImGui::TextColored(ImVec4(1,1,0,1),"WARNING: Courant number too large\nSimulation unstable");}
+      ImGui::PopItemWidth();
     }
 
 
@@ -125,6 +198,7 @@ int main(void)
     static int selected_bounds[2] {0,0};
     static int selected_mat = 0;
 
+    // Get the list of material names available in the database
     static char** mat_input_list = new char*[materialdb.size()];
     {
     int i = 0;
@@ -136,7 +210,6 @@ int main(void)
     }
     }
 
-
     if (selected_dimN == 1){
       if (ImGui::Button("Add material")){
         show_material_form = show_material_form ? false : true;
@@ -144,23 +217,29 @@ int main(void)
     }
     if (show_material_form){
       if (selected_dimN == 1){
-        ImGui::SetNextItemWidth(100);
+        ImGui::PushItemWidth(150);
         ImGui::InputInt2("Material Bounds", selected_bounds);
-        ImGui::SetNextItemWidth(100);
+        bool bounds_valid = selected_bounds[0] > 0 &&
+                            selected_bounds[1] < selected_Nx1D &&
+                            selected_bounds[0] < selected_bounds[1];
+        if (!bounds_valid){
+          ImGui::SameLine(); 
+          ImGui::TextColored(ImVec4(1,1,0,1),"!!");
+          if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Boundaries are not valid");
+        }
         ImGui::Combo("Material Type", &selected_mat, mat_input_list, materialdb.size());
         if (ImGui::Button("Add")){
-          if (selected_bounds[0] >= 0 &&
-              selected_bounds[1] < selected_Nx1D &&
-              selected_bounds[0] < selected_bounds[1]){
+          if (bounds_valid){
             g1->add_material(selected_bounds[0],selected_bounds[1],mat_input_list[selected_mat]);
             selected_bounds[0] = 0;
             selected_bounds[1] = 0;
             selected_mat = 0;
           }
         }
+        ImGui::PopItemWidth();
       }
     }
-
 
     ImGui::EndGroup();
     ImGui::SameLine();
@@ -171,14 +250,74 @@ int main(void)
      *****************************/
     
     ImGui::Text("Output files");
-    static char selected_field_data_fname[64]       = "field.dat"; 
-    static char selected_spect_data_fname[64]       = "spectrum.dat"; 
-    static char selected_field_animation_fname[64]  = "field.gif"; 
-    ImGui::PushItemWidth(100);
+    static char selected_field_data_fname[64]       = "data/field.dat"; 
+    static char selected_spect_data_fname[64]       = "data/spectrum.dat"; 
+    static char selected_field_animation_fname[64]  = "gallery/field.mp4"; 
+    static char selected_spect_output_fname[64]     = "gallery/spectrum.png"; 
+    static int  selected_animation_start_index = 0;
+    static int  selected_animation_end_index = selected_Nt1D;
+    double nyquist_max_f = 0.5/(selected_S1D/selected_f/selected_Nl1D);
+    static double  selected_spectrum_max = nyquist_max_f;
+    ImGui::PushItemWidth(150);
     ImGui::InputText("Field data filename",       selected_field_data_fname,      64, ImGuiInputTextFlags_CharsNoBlank);
+    if (fs::exists(selected_field_data_fname)){
+      ImGui::SameLine(); 
+      ImGui::TextColored(ImVec4(1,1,0,1),"!!");
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("File name already exists\nIt will be overwritten");
+    }
     ImGui::InputText("Spectrum data filename",    selected_spect_data_fname,      64, ImGuiInputTextFlags_CharsNoBlank);
+    if (fs::exists(selected_spect_data_fname)){
+      ImGui::SameLine(); 
+      ImGui::TextColored(ImVec4(1,1,0,1),"!!");
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("File name already exists\nIt will be overwritten");
+    }
     ImGui::InputText("Field animation filename",  selected_field_animation_fname, 64, ImGuiInputTextFlags_CharsNoBlank);
+    if (fs::exists(selected_field_animation_fname)){
+      ImGui::SameLine(); 
+      ImGui::TextColored(ImVec4(1,1,0,1),"!!");
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("File name already exists\nIt will be overwritten");
+    }
+    ImGui::InputText("Spectrum output filename",  selected_spect_output_fname, 64, ImGuiInputTextFlags_CharsNoBlank);
+    if (fs::exists(selected_spect_output_fname)){
+      ImGui::SameLine(); 
+      ImGui::TextColored(ImVec4(1,1,0,1),"!!");
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("File name already exists\nIt will be overwritten");
+    }
     ImGui::PopItemWidth();
+    ImGui::PushItemWidth(50);
+    ImGui::InputInt("Animation first index", &selected_animation_start_index,0,0);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Make start")){
+      selected_animation_start_index = 0;
+    }
+    ImGui::InputInt("Animation last  index", &selected_animation_end_index,0,0);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Make end")){
+      selected_animation_end_index = selected_Nt1D;
+    }
+    selected_animation_start_index = (selected_animation_start_index > 0 ||
+                                      selected_animation_start_index < selected_Nt1D ||
+                                      selected_animation_start_index < selected_animation_end_index) 
+                                      ? selected_animation_start_index : 0;
+    selected_animation_end_index = (selected_animation_end_index > 0 ||
+                                      selected_animation_end_index < selected_Nt1D ||
+                                      selected_animation_start_index < selected_animation_end_index) 
+                                      ? selected_animation_end_index : selected_Nt1D;
+    ImGui::InputDouble("Maximum spectrum f (Hz)",&selected_spectrum_max,0,0,"%g");
+    selected_spectrum_max = (selected_spectrum_max <= 0 || selected_spectrum_max > nyquist_max_f) ? nyquist_max_f : selected_spectrum_max;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Make max")){
+      selected_spectrum_max = nyquist_max_f;
+    }
+    if (ImGui::IsItemHovered()){
+      ImGui::SetTooltip("Nyquist sampling maximum\nf = %g Hz",nyquist_max_f);
+    }
+    ImGui::PopItemWidth();
+    ImGui::Checkbox("Delete frames on exit", &cleanup_temp_frames_at_exit);
 
 
     /*****************************
@@ -188,8 +327,16 @@ int main(void)
     // If the setup succeeds, this flag indicates that 
     // the simulation can be run
     static bool grid_ready = false;
+    static bool data_generated = false;
     // Setup the grid according to the user input
     if (ImGui::Button("Setup Simulation")){
+      if ( parallelism_enabled_checkbox){
+        g1->enable_parallelism();
+        g1->setThreadNumber(enabled_thread_num);
+      } else {
+        g1->disable_parallelism();
+      }
+
       g1->setE0(selected_E0);
       g1->setFreq(selected_f);
       g1->setNx(selected_Nx1D);
@@ -205,17 +352,36 @@ int main(void)
       }
       g1->setFieldProgFname(selected_field_data_fname);
       g1->setSpectrumFname(selected_spect_data_fname);
+      g1->setSpectOutFname(selected_spect_output_fname);
       for (size_t i = 0; i < g1->material_list.size(); i++){
         if (g1->material_list[i].x2 >= selected_Nx1D){
           g1->material_list[i].x2 = selected_Nx1D - 1;
         }
       }
+      g1->animation_start_index = selected_animation_start_index;
+      g1->animation_end_index   = selected_animation_end_index - 1;
+      g1->spectrum_max_index = selected_spectrum_max;
       grid_ready = true;
     }
-    if (grid_ready){
+    if (grid_ready ){
       ImGui::SameLine();
       if (ImGui::Button("Run Simulation")){
+        fs::create_directory("temp_openFDTD_frames");
         g1->run_simulation();
+
+        char ffmpeg_command[512];
+        sprintf(ffmpeg_command,\
+                    "ffmpeg -y -hide_banner -loglevel error "
+                    "-r 60 -f image2 -s 1920x1080 "
+                    " -start_number %d "
+                    "-i temp_openFDTD_frames/frame-%%05d.png "
+                    "-vframes %d "
+                    "-vcodec libx264 -crf 25 -pix_fmt yuv420p %s", \
+               selected_animation_start_index, 
+               selected_animation_end_index - selected_animation_start_index,\
+               selected_field_animation_fname);
+        system(ffmpeg_command);
+        data_generated = true;
       }
     }
 
@@ -225,6 +391,15 @@ int main(void)
         delete g1;
         g1 = new Grid1D();
         grid_ready = false;
+        data_generated = false;
+      }
+    }
+    
+    if (data_generated){
+      ImGui::SameLine();
+      if (ImGui::Button("Remake spectrum plot")){
+        g1->spectrum_max_index = selected_spectrum_max;
+        g1->makeSpectrumPlot(); 
       }
     }
 
@@ -235,10 +410,26 @@ int main(void)
      **   Material List Review  **
      *****************************/
 
-    static bool show_mats_in_grid = false;
-    if (ImGui::Button("Show materials")){
-      show_mats_in_grid = show_mats_in_grid ? false : true;
+    if (!show_material_form){
+      ImVec2 cursor = ImGui::GetCursorPos();
+      ImGui::SetCursorPos(ImVec2(cursor[0], cursor[1] + 75));
+
     }
+
+    static bool show_mats_in_grid = true;
+    ImGui::Text("Materials in grid");
+    ImGui::SameLine();
+    if (show_mats_in_grid){
+      if (ImGui::SmallButton("Hide")){
+        show_mats_in_grid = show_mats_in_grid ? false : true;
+      }
+    } else {
+      if (ImGui::SmallButton("Show")){
+        show_mats_in_grid = show_mats_in_grid ? false : true;
+      }
+    }
+    ImGui::Separator();
+
 
     // Generate a table of the materials in the grid
     if (show_mats_in_grid) {
@@ -274,6 +465,7 @@ int main(void)
         ImGui::EndTable();
       }
     }
+    ImGui::PopFont();
 
     ImGui::End();
 
@@ -288,7 +480,7 @@ int main(void)
 
     glfwSwapBuffers(window);
   }
-
+  
   // Cleanup
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
@@ -296,6 +488,10 @@ int main(void)
 
   glfwDestroyWindow(window);
   glfwTerminate();
+
+  if (cleanup_temp_frames_at_exit){
+    fs::remove_all("./temp_openFDTD_frames");
+  }
 
   return 0;
 }

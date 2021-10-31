@@ -12,6 +12,8 @@ The following dependencies are required to render the GUI.
 - [Dear ImGui](https://github.com/ocornut/imgui)
 - OpenGL 3
 - GLFW 3
+- gnuplot
+- ffmpeg
 
 ## Installation
 

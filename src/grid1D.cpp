@@ -11,8 +11,12 @@ Grid1D::Grid1D(){
   Sc = 1.0;
   lbt = Boundary_t::Mur1;
   rbt = Boundary_t::Mur1;
-  field_fname = "";
-  spectrum_fname = "";
+  field_data_fname = "";
+  spectrum_data_fname = "";
+  spectrum_out_fname = "";
+  parallelism_enabled = true;
+  animation_start_index = 0;
+  animation_end_index = 0;
 
 }
 
@@ -27,7 +31,7 @@ void Grid1D::init_coefs(){
   mur  = new double[Nx]();
   Ce = new double[Nx]();
   Ch = new double[Nx]();
-  #pragma omp parallel for if(parallelism_enabled) \
+  #pragma omp parallel for if(parallelism_enabled) num_threads(number_of_threads) \
                            firstprivate(dx,dt)\
                            shared(epsr,mur,Ce,Ch)
   for (int i = 0; i < Nx; i++){
@@ -36,7 +40,7 @@ void Grid1D::init_coefs(){
     Ce[i] = dt / (eps0*epsr[i]) / dx;
     Ch[i] = dt / (mu0*mur[i])   / dx;
   }
-  #pragma omp parallel for if(parallelism_enabled) \
+  #pragma omp parallel for if(parallelism_enabled) num_threads(number_of_threads) \
                            firstprivate(dx,dt)\
                            shared(material_list,epsr,mur,Ce,Ch)
   for (int i = 0; i < material_list.size(); i++){
@@ -55,13 +59,13 @@ void Grid1D::init_coefs(){
 
 void Grid1D::init_kernels(){
   fm = 0.5/dt;      std::cout<< fm << "\n";
-  df = 1.0/Nt/dt;   std::cout<< df << "\n";
-  Nf = Nt;       std::cout<< Nt << "\n";
+  Nf = Nt+1;       std::cout<< Nt << "\n";
+  df = 2.0*fm/Nf;   std::cout<< df << "\n";
   Ks = new std::complex<double>[Nf]();
 
   std::complex<double> j(0,1);
   for (int fi = 0; fi < Nf; fi++){
-    Ks[fi] = exp(-j*2.0*M_PI*dt*(fi*df));
+    Ks[fi] = exp(-j*2.0*M_PI*dt*(-fm+fi*df));
   }
   return;
 }
@@ -75,7 +79,7 @@ void Grid1D::init_fourier(){
 
 void Grid1D::update_fourier(double n){
 
-  #pragma omp parallel for if(parallelism_enabled) \
+  #pragma omp parallel for if(parallelism_enabled) num_threads(number_of_threads)\
                            shared(Rf,Tf,Sf,Ks,Ez)
   for (int fi = 0; fi < Nf; fi++){
     Rf[fi] += std::pow(Ks[fi],n)*Ez[1];
@@ -100,7 +104,7 @@ void Grid1D::add_material(int iL, int iR,
 }
 
 void Grid1D::update_magnetic(){
-  #pragma omp simd if(parallelism_enabled) 
+  #pragma omp simd if(parallelism_enabled)
   for (int i = 0; i < Nx - 1; i++){
     Hy[i] = Hy[i] + Ch[i]*(Ez[i+1] - Ez[i]);
   }
@@ -114,7 +118,7 @@ void Grid1D::update_tfsf_magnetic(int n){
 }
 
 void Grid1D::update_electric(){
-  #pragma omp simd if(parallelism_enabled)
+  #pragma omp simd if(parallelism_enabled) 
   for (int i = 1; i < Nx - 1; i++){
     Ez[i] = Ez[i] + Ce[i]*(Hy[i] - Hy[i-1]);
   }
@@ -142,8 +146,8 @@ void Grid1D::update_ABC(){
 }
 
 void Grid1D::open_result_file(){
-  fhandle.open("./data/"+field_fname);
-  shandle.open("./data/"+spectrum_fname);
+  fhandle.open(field_data_fname);
+  shandle.open(spectrum_data_fname);
   return;
 }
 
@@ -165,7 +169,7 @@ void Grid1D::save_spectrum(){
   for (int i = 0; i < Nf; i++){
     double Ri = pow(std::abs(Rf[i]/Sf[i]),2);
     double Ti = pow(std::abs(Tf[i]/Sf[i]),2);
-    shandle << i*df << " " <<  Ri     \
+    shandle << -fm + i*df << " " <<  Ri     \
                           << " " <<  Ti     \
                           << " " <<  Ri+Ti  \
                           << "\n";
@@ -205,6 +209,7 @@ void Grid1D::run_simulation(){
   close_result_file();
 
   makeFieldAnimation();
+  makeSpectrumPlot();
 
   std::cout << "Simulation Complete\n";
   return;
@@ -302,31 +307,57 @@ void Grid1D::setNt(int Nt_){
 }
 
 void Grid1D::setFieldProgFname(std::string fn){
-  field_fname = fn;
+  field_data_fname = fn;
   return;
 }
 
 void Grid1D::setSpectrumFname(std::string fn){
-  spectrum_fname = fn;
+  spectrum_data_fname = fn;
   return;
+}
+
+void Grid1D::setSpectOutFname(std::string fn){
+  spectrum_out_fname = fn;
+  return;
+}
+
+void Grid1D::setThreadNumber(int nt){
+  number_of_threads = nt;
 }
 
 void Grid1D::makeFieldAnimation(){
   std::ofstream gnuplotscript;
-  gnuplotscript.open("tools/plot.g");
-  gnuplotscript << "set terminal gif animate delay 4 optimize\n";
-  gnuplotscript << "set output './gallery/field.gif'\n";
+  gnuplotscript.open("tools/plot_field.g");
+  gnuplotscript << "set terminal pngcairo\n";
   gnuplotscript << "stats './data/field.dat' nooutput\n";
   gnuplotscript << "set yr [" << -2*E0 << ":" << 2*E0 << "]\n";
   gnuplotscript << "set xlabel \"Spatial step\"\n";
   gnuplotscript << "set ylabel \"V/m\"\n";
   gnuplotscript << "unset key\n";
-  gnuplotscript << "do for [i=1:int(STATS_blocks)] {\n";
-  gnuplotscript << "    set title sprintf(\"n = %d\",i+1)\n";
-  gnuplotscript << "    p './data/field.dat' index (i-1) u 0:2 w l t 'Ez'\n";
+  gnuplotscript << "do for [i=" << animation_start_index << ": " << animation_end_index << "] {\n";
+  gnuplotscript << "    set output sprintf(\"./temp_openFDTD_frames/frame-%05d.png\",i)\n";
+  gnuplotscript << "    set title sprintf(\"n = %d\",i)\n";
+  gnuplotscript << "    p './data/field.dat' index i u 0:2 w l t 'Ez'\n";
   gnuplotscript << "}";
   gnuplotscript.close();
-  system("gnuplot tools/plot.g");
+  system("gnuplot tools/plot_field.g");
+  
+  return;
+}
+
+void Grid1D::makeSpectrumPlot(){
+  std::ofstream gnuplotscript;
+  gnuplotscript.open("tools/plot_spectrum.g");
+  gnuplotscript << "set terminal pngcairo\n";
+  gnuplotscript << "set output \"" << spectrum_out_fname << "\"\n";
+  gnuplotscript << "set xlabel \"Frequence (Hz)\"\n";
+  gnuplotscript << "set yr [0:1.2]\n";
+  gnuplotscript << "set xr [0:" << spectrum_max_index << "]\n";
+  gnuplotscript << "p './data/spectrum.dat' u 1:2 w l t 'Reflected',\\\n";
+  gnuplotscript << "  '' u 1:3 w l t 'Transmitted', \\\n";
+  gnuplotscript << "  ''  u 1:4 w l lt 5 t 'Total'\n";
+  gnuplotscript.close();
+  system("gnuplot tools/plot_spectrum.g");
   
   return;
 }
@@ -341,5 +372,5 @@ Grid1D::~Grid1D(){
   if (!Ks)   { delete[] Ks;   }
   if (!Rf)   { delete[] Rf;   }
   if (!Tf)   { delete[] Tf;   }
-  if (!Sf)   { delete[] Tf;   }
+  if (!Sf)   { delete[] Sf;   }
 }

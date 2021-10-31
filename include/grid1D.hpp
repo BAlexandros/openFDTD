@@ -66,8 +66,9 @@ class Grid1D
     double df;                  // The frequency resolution
 
     // File to save
-    std::string   field_fname;    // filename to save field
-    std::string   spectrum_fname; // filename to save spectrum
+    std::string   field_data_fname;    // filename to save field
+    std::string   spectrum_data_fname; // filename to save spectrum
+    std::string   spectrum_out_fname;
     std::ofstream fhandle;        // field file handle
     std::ofstream shandle;        // specrrum file handle
 
@@ -76,12 +77,18 @@ class Grid1D
     bool save_field_progress  = false;
     bool save_refl_trans_spec = false;
 
+    int number_of_threads = 1;
+
   public:
     
     Grid1D();
 
     std::vector<GridMat> material_list;
                     // List of materials inside the grid
+    int animation_start_index;
+    int animation_end_index;
+    int spectrum_max_index;
+
 
     // Initializers
     void init_coefs();   // Initialize update coefficients
@@ -95,8 +102,7 @@ class Grid1D
                       std::string mname);
 
     // Update the Ce and Ch coefficients of the grid
-    void update_magnetic();
-    void update_electric();
+    void update_magnetic(); void update_electric();
     void update_ABC();
     void update_tfsf_magnetic(int n);
     void update_tfsf_electric(int n);
@@ -122,6 +128,7 @@ class Grid1D
     // Parallelism flag
     void enable_parallelism();
     void disable_parallelism();
+    void setThreadNumber(int);
 
     // Parameter setters
     void setE0(double);
@@ -135,12 +142,14 @@ class Grid1D
     void setdm(double);
     void setFieldProgFname(std::string);
     void setSpectrumFname(std::string);
+    void setSpectOutFname(std::string);
     void recordFieldProgTrue();
     void recordFieldProgFalse();
     void recordRefTranSpectTrue();
     void recordRefTranSpectFalse();
 
     void makeFieldAnimation();
+    void makeSpectrumPlot();
 
     ~Grid1D();
 };

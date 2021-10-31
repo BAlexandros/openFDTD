@@ -4,7 +4,9 @@ project(openFDTD
   DESCRIPTION "A free and open source FDTD solver"
   LANGUAGES C CXX)
 
-set(CMAKE_CXX_FLAGS "-Wall -Wpedantic -Wextra -fopenmp -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl")
+set (CMAKE_CXX_STANDARD 17)
+
+set(CMAKE_CXX_FLAGS "-Wall -Wpedantic -Wextra -fopenmp -lglfw3 -lGL -lX11 -lpthread -lXrandr -lXi -ldl -lstdc++fs -O3")
 
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 set(CMAKE_HAVE_THREADS_LIBRARY 1)
